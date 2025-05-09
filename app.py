@@ -6,7 +6,10 @@ import docx
 import logging
 
 # 로깅 설정
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
@@ -34,19 +37,26 @@ def extract_text_from_docx(file_path):
 
 @app.route('/')
 def index():
+    logger.debug("메인 페이지 요청")
     return render_template('index.html')
 
 @app.route('/analyze', methods=['POST'])
 def analyze():
     try:
+        logger.debug("분석 요청 받음")
+        logger.debug(f"요청 데이터: {request.form}")
+        logger.debug(f"요청 파일: {request.files}")
+        
         gpt_killer = GPTKiller()
         
         if 'file' in request.files:
+            logger.debug("파일 업로드 요청 감지")
             file = request.files['file']
             if file and allowed_file(file.filename):
                 filename = secure_filename(file.filename)
                 file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
                 file.save(file_path)
+                logger.debug(f"파일 저장됨: {file_path}")
                 
                 try:
                     if filename.endswith('.docx'):
@@ -56,24 +66,39 @@ def analyze():
                             text = f.read()
                     
                     if text is None:
+                        logger.error("파일 처리 실패")
                         return jsonify({'error': '파일을 처리할 수 없습니다.'}), 400
+                    
+                    logger.debug(f"파일에서 추출된 텍스트: {text[:100]}...")
                     
                 finally:
                     # 파일 처리 후 삭제
                     if os.path.exists(file_path):
                         os.remove(file_path)
+                        logger.debug(f"임시 파일 삭제됨: {file_path}")
             else:
+                logger.error(f"허용되지 않는 파일 형식: {file.filename if file else 'None'}")
                 return jsonify({'error': '허용되지 않는 파일 형식입니다.'}), 400
         else:
+            logger.debug("텍스트 입력 요청 감지")
             text = request.form.get('text', '')
+            logger.debug(f"받은 텍스트: {text[:100]}...")  # 처음 100자만 로깅
+            
             if not text:
+                logger.error("텍스트가 비어있음")
                 return jsonify({'error': '텍스트를 입력해주세요.'}), 400
         
-        result = gpt_killer.analyze_text(text)
-        return jsonify(result)
+        logger.debug("GPT Killer 분석 시작")
+        try:
+            result = gpt_killer.analyze_text(text)
+            logger.debug(f"분석 결과: {result}")
+            return jsonify(result)
+        except Exception as e:
+            logger.error(f"GPT Killer 분석 중 오류 발생: {str(e)}", exc_info=True)
+            return jsonify({'error': '텍스트 분석 중 오류가 발생했습니다.'}), 500
         
     except Exception as e:
-        logger.error(f"분석 중 오류 발생: {str(e)}")
+        logger.error(f"분석 중 오류 발생: {str(e)}", exc_info=True)
         return jsonify({'error': '서버 오류가 발생했습니다.'}), 500
 
 if __name__ == '__main__':
