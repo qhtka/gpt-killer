@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPT Killer - AI 텍스트 분석기</title>
+    <style>
+        body {
+            font-family: 'Noto Sans KR', sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .input-section {
+            margin-bottom: 20px;
+        }
+        textarea {
+            width: 100%;
+            height: 200px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            resize: vertical;
+            font-size: 16px;
+        }
+        .file-input {
+            margin: 20px 0;
+        }
+        .file-input p {
+            color: #666;
+            font-size: 14px;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        #result {
+            margin-top: 30px;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            display: none;
+        }
+        .error {
+            color: #dc3545;
+            margin-top: 10px;
+            display: none;
+        }
+        .loading {
+            text-align: center;
+            display: none;
+            margin-top: 20px;
+        }
+        .loading::after {
+            content: '';
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #007bff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .analysis-details {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-radius: 5px;
+        }
+        .analysis-details h4 {
+            color: #495057;
+            margin-top: 15px;
+            margin-bottom: 10px;
+        }
+        .analysis-details ul {
+            margin: 10px 0;
+            padding-left: 20px;
+        }
+        .analysis-details li {
+            margin-bottom: 5px;
+            color: #666;
+        }
+        .suggestion {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #e7f5ff;
+            border-radius: 5px;
+        }
+        .suggestion h4 {
+            color: #1971c2;
+            margin-bottom: 10px;
+        }
+        .highlighted-text {
+            margin-top: 20px;
+            padding: 20px;
+            background-color: white;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            white-space: pre-wrap;
+        }
+        .highlight {
+            background-color: #ffd700;
+            padding: 2px;
+            border-radius: 3px;
+        }
+        .highlight.long-sentence {
+            background-color: #ffb6c1;
+        }
+        .highlight.repeated-words {
+            background-color: #98fb98;
+        }
+        .highlight.pattern {
+            background-color: #87ceeb;
+        }
+        .highlight-info {
+            margin-top: 10px;
+            font-size: 14px;
+            color: #666;
+        }
+        .highlight-info span {
+            display: inline-block;
+            margin-right: 15px;
+        }
+        .highlight-info .color-box {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            margin-right: 5px;
+            border-radius: 2px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>GPT Killer - AI 텍스트 분석기</h1>
+        
+        <div class="input-section">
+            <textarea id="text" placeholder="분석할 텍스트를 입력하세요..."></textarea>
+            
+            <div class="file-input">
+                <p>또는 파일 업로드 (지원 형식: .txt, .docx)</p>
+                <input type="file" id="file" accept=".txt,.docx">
+            </div>
+            
+            <button onclick="analyzeText()">분석하기</button>
+        </div>
+        
+        <div class="loading" id="loading">분석 중...</div>
+        <div class="error" id="error"></div>
+        
+        <div id="result">
+            <h3>분석 결과</h3>
+            <p>GPT 생성 확률: <span id="gpt-probability"></span>%</p>
+            <p>표절률: <span id="plagiarism-rate"></span>%</p>
+            
+            <div class="highlight-info">
+                <span><span class="color-box" style="background-color: #ffb6c1;"></span>긴 문장</span>
+                <span><span class="color-box" style="background-color: #98fb98;"></span>반복 단어</span>
+                <span><span class="color-box" style="background-color: #87ceeb;"></span>패턴</span>
+            </div>
+            
+            <div class="highlighted-text" id="highlighted-text"></div>
+            
+            <div class="analysis-details">
+                <h4>GPT 생성 확률 산정 기준</h4>
+                <ul>
+                    <li>문장 길이 분석: 25단어 이상의 긴 문장이 많을수록 GPT 생성 가능성이 높음 (25%)</li>
+                    <li>단어 반복 패턴: 동일한 단어가 4회 이상 반복되는 경우 GPT 생성 가능성이 높음 (35%)</li>
+                    <li>특정 문장 패턴: 접속사, 동사, 형용사, 인용, '것' 패턴의 반복이 발견될 경우 GPT 생성 가능성이 높음 (최대 40%)</li>
+                    <li>최종 확률은 상위 30% 문장들의 평균값으로 계산됩니다.</li>
+                </ul>
+                
+                <h4>표절률 산정 기준</h4>
+                <ul>
+                    <li>8어절 이상의 문장을 대상으로 표절 검사를 수행합니다.</li>
+                    <li>인터넷의 모든 자료와 비교하여 일치하는 문장을 찾습니다.</li>
+                    <li>표절률은 표절로 판정된 문장 수를 전체 문장 수로 나눈 값입니다.</li>
+                </ul>
+            </div>
+            
+            <div class="plagiarism-details" id="plagiarism-details" style="display: none;">
+                <h4>표절 검사 상세 결과</h4>
+                <div id="plagiarism-list"></div>
+            </div>
+            
+            <div class="suggestion">
+                <h4>개선을 위한 제안사항</h4>
+                <div id="suggestions"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function analyzeText() {
+            const text = document.getElementById('text').value;
+            const file = document.getElementById('file').files[0];
+            const loading = document.getElementById('loading');
+            const error = document.getElementById('error');
+            const result = document.getElementById('result');
+            
+            // 초기화
+            error.style.display = 'none';
+            result.style.display = 'none';
+            loading.style.display = 'block';
+            
+            const formData = new FormData();
+            if (file) {
+                formData.append('file', file);
+            } else if (text) {
+                formData.append('text', text);
+            } else {
+                error.textContent = '텍스트를 입력하거나 파일을 선택해주세요.';
+                error.style.display = 'block';
+                loading.style.display = 'none';
+                return;
+            }
+            
+            fetch('/analyze', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                loading.style.display = 'none';
+                
+                if (data.error) {
+                    error.textContent = data.error;
+                    error.style.display = 'block';
+                    return;
+                }
+                
+                const gptProb = (data.gpt_probability * 100).toFixed(1);
+                const plagRate = (data.plagiarism_rate * 100).toFixed(1);
+                
+                document.getElementById('gpt-probability').textContent = gptProb;
+                document.getElementById('plagiarism-rate').textContent = plagRate;
+                
+                // 텍스트 하이라이트
+                let highlightedText = text;
+                const highlights = new Map();
+                
+                data.sentence_analyses.forEach(analysis => {
+                    analysis.reasons.forEach(reason => {
+                        const type = reason.type;
+                        const text = reason.text;
+                        const description = reason.description;
+                        
+                        if (!highlights.has(text)) {
+                            highlights.set(text, { type, description });
+                        }
+                    });
+                });
+                
+                // 하이라이트 적용
+                highlights.forEach((info, text) => {
+                    const className = info.type.replace('_', '-');
+                    const highlight = `<span class="highlight ${className}" title="${info.description}">${text}</span>`;
+                    highlightedText = highlightedText.replace(text, highlight);
+                });
+                
+                document.getElementById('highlighted-text').innerHTML = highlightedText;
+                
+                // 제안사항 생성
+                const suggestions = [];
+                
+                if (gptProb > 50) {
+                    suggestions.push(
+                        "• 문장 길이를 다양하게 조절하여 자연스러운 흐름을 만드세요.",
+                        "• 반복되는 단어를 유의어로 대체하여 다양한 표현을 사용하세요.",
+                        "• 접속사와 형용사의 사용을 줄이고, 더 간결한 문장으로 작성하세요."
+                    );
+                }
+                
+                if (plagRate > 30) {
+                    suggestions.push(
+                        "• 인용할 경우 출처를 명확히 표시하세요.",
+                        "• 다른 사람의 아이디어를 참고할 때는 자신만의 관점을 추가하세요.",
+                        "• 문장을 재구성하여 독창적인 표현으로 바꾸세요."
+                    );
+                }
+                
+                if (suggestions.length === 0) {
+                    suggestions.push("• 현재 텍스트는 양호한 상태입니다. 계속해서 좋은 글쓰기를 유지하세요.");
+                }
+                
+                document.getElementById('suggestions').innerHTML = suggestions.join('<br>');
+                
+                // 표절 상세 결과 표시
+                const plagiarismDetails = document.getElementById('plagiarism-details');
+                const plagiarismList = document.getElementById('plagiarism-list');
+                
+                if (data.plagiarism_details && data.plagiarism_details.length > 0) {
+                    let html = '<ul>';
+                    data.plagiarism_details.forEach(detail => {
+                        html += `<li>
+                            <p class="plagiarized-sentence">${detail.sentence}</p>
+                            <p class="match-sources">일치하는 출처: ${detail.matches.length}개</p>
+                        </li>`;
+                    });
+                    html += '</ul>';
+                    plagiarismList.innerHTML = html;
+                    plagiarismDetails.style.display = 'block';
+                } else {
+                    plagiarismDetails.style.display = 'none';
+                }
+                
+                result.style.display = 'block';
+            })
+            .catch(err => {
+                loading.style.display = 'none';
+                error.textContent = '서버와 통신 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.';
+                error.style.display = 'block';
+                console.error('Error:', err);
+            });
+        }
+        
+        // 파일 선택 시 텍스트 영역 비우기
+        document.getElementById('file').addEventListener('change', function() {
+            if (this.files.length > 0) {
+                document.getElementById('text').value = '';
+            }
+        });
+        
+        // 텍스트 입력 시 파일 선택 초기화
+        document.getElementById('text').addEventListener('input', function() {
+            if (this.value) {
+                document.getElementById('file').value = '';
+            }
+        });
+    </script>
+</body>
+</html> 
