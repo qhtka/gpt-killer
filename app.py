@@ -1,10 +1,10 @@
 import os
 from flask import Flask, request, jsonify, render_template, redirect, url_for
 from werkzeug.utils import secure_filename
-from gpt_killer import GPTKiller
 import docx
 import logging
 from gpt_detector import GPTDetector
+import gc
 
 # 로깅 설정
 logging.basicConfig(
@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = 'uploads'
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max-limit
+app.config['MAX_CONTENT_LENGTH'] = 1024 * 1024  # 1MB로 제한
 
 # 업로드 폴더가 없으면 생성
 if not os.path.exists(app.config['UPLOAD_FOLDER']):
@@ -36,7 +36,14 @@ def extract_text_from_docx(file_path):
         logger.error(f"DOCX 파일 처리 중 오류: {str(e)}")
         return None
 
-detector = GPTDetector()
+# GPT Detector 인스턴스 생성
+detector = None
+
+def get_detector():
+    global detector
+    if detector is None:
+        detector = GPTDetector()
+    return detector
 
 @app.route('/')
 def index():
@@ -47,8 +54,6 @@ def index():
 def analyze():
     try:
         logger.debug("분석 요청 받음")
-        logger.debug(f"요청 데이터: {request.form}")
-        logger.debug(f"요청 파일: {request.files}")
         
         if 'file' in request.files:
             logger.debug("파일 업로드 요청 감지")
@@ -91,8 +96,13 @@ def analyze():
         
         logger.debug("GPT Detector 분석 시작")
         try:
+            detector = get_detector()
             result = detector.analyze_text(text)
             logger.debug(f"분석 결과: {result}")
+            
+            # 메모리 정리
+            gc.collect()
+            
             return jsonify(result)
         except Exception as e:
             logger.error(f"GPT Detector 분석 중 오류 발생: {str(e)}", exc_info=True)
@@ -110,7 +120,11 @@ def result():
     
     try:
         # 텍스트 분석
+        detector = get_detector()
         result = detector.analyze_text(text)
+        
+        # 메모리 정리
+        gc.collect()
         
         # 결과 템플릿에 전달
         return render_template('result.html',

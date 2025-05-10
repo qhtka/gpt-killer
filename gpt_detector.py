@@ -2,6 +2,7 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 import numpy as np
 import logging
+import gc
 
 logger = logging.getLogger(__name__)
 
@@ -9,10 +10,22 @@ class GPTDetector:
     def __init__(self):
         logger.debug("GPT Detector 초기화 시작")
         try:
-            self.model = AutoModelForCausalLM.from_pretrained('skt/kogpt2-base-v2')
+            # 메모리 최적화를 위한 설정
+            torch.cuda.empty_cache() if torch.cuda.is_available() else None
+            gc.collect()
+            
+            # 모델 설정
+            self.device = torch.device('cpu')  # CPU 사용으로 변경
+            self.model = AutoModelForCausalLM.from_pretrained(
+                'skt/kogpt2-base-v2',
+                torch_dtype=torch.float32,  # float32 사용
+                low_cpu_mem_usage=True
+            )
             self.tokenizer = AutoTokenizer.from_pretrained('skt/kogpt2-base-v2')
-            self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
             self.model.to(self.device)
+            
+            # 메모리 최적화
+            self.model.eval()  # 평가 모드로 설정
             logger.debug("GPT Detector 초기화 완료")
         except Exception as e:
             logger.error(f"GPT Detector 초기화 중 오류 발생: {str(e)}")
@@ -20,14 +33,30 @@ class GPTDetector:
 
     def calculate_perplexity(self, text):
         try:
-            encodings = self.tokenizer(text, return_tensors='pt')
-            encodings = {k: v.to(self.device) for k, v in encodings.items()}
+            # 텍스트를 작은 청크로 나누기
+            max_length = 512  # 최대 토큰 길이 제한
+            chunks = [text[i:i+max_length] for i in range(0, len(text), max_length)]
             
-            with torch.no_grad():
-                outputs = self.model(**encodings, labels=encodings['input_ids'])
-                loss = outputs.loss
+            total_loss = 0
+            total_tokens = 0
             
-            perplexity = torch.exp(loss).item()
+            for chunk in chunks:
+                encodings = self.tokenizer(chunk, return_tensors='pt', truncation=True, max_length=max_length)
+                encodings = {k: v.to(self.device) for k, v in encodings.items()}
+                
+                with torch.no_grad():
+                    outputs = self.model(**encodings, labels=encodings['input_ids'])
+                    loss = outputs.loss
+                    total_loss += loss.item() * len(encodings['input_ids'][0])
+                    total_tokens += len(encodings['input_ids'][0])
+                
+                # 메모리 정리
+                del outputs
+                del encodings
+                torch.cuda.empty_cache() if torch.cuda.is_available() else None
+                gc.collect()
+            
+            perplexity = np.exp(total_loss / total_tokens) if total_tokens > 0 else float('inf')
             logger.debug(f"Perplexity 계산 완료: {perplexity}")
             return perplexity
         except Exception as e:
@@ -42,7 +71,8 @@ class GPTDetector:
             if not sentences:
                 return 0
             
-            lengths = [len(s) for s in sentences]
+            # 문장 길이 계산을 최적화
+            lengths = np.array([len(s) for s in sentences])
             mean = np.mean(lengths)
             std = np.std(lengths)
             
@@ -56,6 +86,12 @@ class GPTDetector:
     def analyze_text(self, text):
         try:
             logger.debug("텍스트 분석 시작")
+            
+            # 텍스트 길이 제한
+            if len(text) > 2000:
+                text = text[:2000]
+                logger.warning("텍스트가 너무 깁니다. 처음 2000자만 분석합니다.")
+            
             perplexity = self.calculate_perplexity(text)
             burstiness = self.calculate_burstiness(text)
             
@@ -71,6 +107,9 @@ class GPTDetector:
                 result = "인간 작성 가능성 높음"
             
             logger.debug(f"판단 결과: {result}")
+            
+            # 메모리 정리
+            gc.collect()
             
             return {
                 'perplexity': perplexity,
