@@ -27,6 +27,13 @@ class GPTKiller:
         self.gpt2_model = None
         self.gpt2_tokenizer = None
         
+        # 패턴 목록 정의
+        self.logical_connectors = ['또한', '그리고', '그러나', '하지만', '따라서', '그러므로', '그래서', '결론적으로']
+        self.passive_voice = ['~되다', '~받다', '~당하다', '~에 의해', '~에 의하여', '~로 인해', '~로 말미암아']
+        self.adjective_patterns = ['~적', '~적인', '~적으로', '~스러운', '~스럽게']
+        self.citation_patterns = ['~라고', '~라고 한다', '~라고 하였다', '~라고 말했다', '~라고 언급했다']
+        self.vague_expressions = ['~것', '~것이다', '~것을', '~것이', '~것은', '~것으로', '~것에']
+        
         # NLTK 데이터 다운로드
         try:
             nltk.data.find('tokenizers/punkt')
@@ -311,83 +318,166 @@ class GPTKiller:
             logger.error(f"문장 패턴 분석 중 오류: {str(e)}")
             return {'score': 0.3, 'reasons': []}
 
-    def analyze_text(self, text: str) -> dict:
-        """텍스트를 분석하여 GPT 생성 여부와 표절률을 반환합니다."""
+    def analyze_text(self, text):
+        """텍스트 분석"""
         try:
-            logger.info("텍스트 분석 시작")
-            logger.info(f"입력 텍스트: {text[:100]}...")  # 처음 100자만 로깅
-            
-            # 문장별 분석
+            # 문장 분리
             sentences = self._split_into_sentences(text)
-            sentence_analyses = []
+            print(f"분리된 문장 수: {len(sentences)}")
             
             # 각 문장 분석
+            sentence_analyses = []
+            total_score = 0
+            
             for sentence in sentences:
-                if len(sentence.strip()) > 0:  # 빈 문장 제외
-                    analysis = self._analyze_sentence_pattern(sentence)
-                    if analysis['reasons']:  # 이유가 있는 경우에만 추가
-                        logger.info(f"문장 분석 결과: {sentence}")
-                        logger.info(f"하이라이트 이유: {analysis['reasons']}")
-                        sentence_analyses.append({
-                            'sentence': sentence,
-                            'score': analysis['score'],
-                            'reasons': analysis['reasons']
+                print(f"\n분석 중인 문장: {sentence}")
+                reasons = []
+                sentence_score = 0
+                
+                # 1. 긴 문장 체크 (150자 이상으로 완화)
+                if len(sentence) > 150:
+                    reasons.append({
+                        'type': 'long_sentence',
+                        'text': sentence,
+                        'description': '문장이 너무 깁니다.',
+                        'start': 0,
+                        'end': len(sentence)
+                    })
+                    sentence_score += 5  # 점수 감소
+                
+                # 2. 반복된 단어 체크 (5회 이상으로 완화)
+                words = sentence.split()
+                word_count = {}
+                for word in words:
+                    if len(word) > 1:  # 한 글자 단어 제외
+                        word_count[word] = word_count.get(word, 0) + 1
+                
+                for word, count in word_count.items():
+                    if count >= 5:  # 기준 완화
+                        start = sentence.find(word)
+                        reasons.append({
+                            'type': 'repeated_words',
+                            'text': word,
+                            'description': f'"{word}"가 {count}번 반복되었습니다.',
+                            'start': start,
+                            'end': start + len(word)
                         })
+                        sentence_score += 3  # 점수 감소
+                
+                # 3. 논리적 연결어 체크 (3회 이상으로 완화)
+                connector_count = 0
+                for connector in self.logical_connectors:
+                    if connector in sentence:
+                        connector_count += 1
+                        start = sentence.find(connector)
+                        reasons.append({
+                            'type': 'logical_connector',
+                            'text': connector,
+                            'description': f'논리적 연결어 "{connector}"가 사용되었습니다.',
+                            'start': start,
+                            'end': start + len(connector)
+                        })
+                
+                if connector_count >= 3:  # 기준 완화
+                    sentence_score += 3  # 점수 감소
+                
+                # 4. 수동태 체크 (3회 이상으로 완화)
+                passive_count = 0
+                for passive in self.passive_voice:
+                    if passive in sentence:
+                        passive_count += 1
+                        start = sentence.find(passive)
+                        reasons.append({
+                            'type': 'passive_voice',
+                            'text': passive,
+                            'description': f'수동태 "{passive}"가 사용되었습니다.',
+                            'start': start,
+                            'end': start + len(passive)
+                        })
+                
+                if passive_count >= 3:  # 기준 완화
+                    sentence_score += 3  # 점수 감소
+                
+                # 5. 형용사 패턴 체크 (3회 이상으로 완화)
+                pattern_count = 0
+                for pattern in self.adjective_patterns:
+                    if pattern in sentence:
+                        pattern_count += 1
+                        start = sentence.find(pattern)
+                        reasons.append({
+                            'type': 'adjective_pattern',
+                            'text': pattern,
+                            'description': f'형용사 패턴 "{pattern}"이 사용되었습니다.',
+                            'start': start,
+                            'end': start + len(pattern)
+                        })
+                
+                if pattern_count >= 3:  # 기준 완화
+                    sentence_score += 3  # 점수 감소
+                
+                # 6. 인용 패턴 체크 (3회 이상으로 완화)
+                citation_count = 0
+                for pattern in self.citation_patterns:
+                    if pattern in sentence:
+                        citation_count += 1
+                        start = sentence.find(pattern)
+                        reasons.append({
+                            'type': 'citation_pattern',
+                            'text': pattern,
+                            'description': f'인용 패턴 "{pattern}"이 사용되었습니다.',
+                            'start': start,
+                            'end': start + len(pattern)
+                        })
+                
+                if citation_count >= 3:  # 기준 완화
+                    sentence_score += 3  # 점수 감소
+                
+                # 7. 모호한 표현 체크 (3회 이상으로 완화)
+                vague_count = 0
+                for expression in self.vague_expressions:
+                    if expression in sentence:
+                        vague_count += 1
+                        start = sentence.find(expression)
+                        reasons.append({
+                            'type': 'vague_expression',
+                            'text': expression,
+                            'description': f'모호한 표현 "{expression}"이 사용되었습니다.',
+                            'start': start,
+                            'end': start + len(expression)
+                        })
+                
+                if vague_count >= 3:  # 기준 완화
+                    sentence_score += 3  # 점수 감소
+                
+                if reasons:
+                    sentence_analyses.append({
+                        'sentence': sentence,
+                        'reasons': reasons,
+                        'score': sentence_score
+                    })
+                    total_score += sentence_score
             
-            # Perplexity 분석
-            perplexity = self._calculate_perplexity(text)
-            perplexity_score = 1 - min(1, perplexity / 150)
+            print(f"분석된 문장 수: {len(sentence_analyses)}")
+            print(f"총 점수: {total_score}")
             
-            # Burstiness 분석
-            burstiness = self._calculate_burstiness(text)
-            burstiness_score = 1 - burstiness
+            # GPT 점수 계산 (0-100, 기준 완화)
+            gpt_score = min(100, total_score * 0.7)  # 30% 감소
             
-            # N-gram 패턴 분석
-            ngram_score = self._analyze_ngram_patterns(text)
+            # 인간 점수 계산 (0-100)
+            human_score = max(0, 100 - gpt_score)
             
-            # 기계적 문체 분석
-            mechanical_score = self._analyze_mechanical_style(text)
-            
-            # 종합 점수 계산
-            gpt_probability = self._calculate_final_score({
-                'perplexity': perplexity_score,
-                'burstiness': burstiness_score,
-                'ngram_patterns': ngram_score,
-                'mechanical_style': mechanical_score
-            })
-            
-            # 표절 검사
-            plagiarism_results = self._check_plagiarism(text)
-            
-            result = {
-                "gpt_probability": float(gpt_probability),
-                "plagiarism_rate": float(plagiarism_results['rate']),
-                "plagiarism_details": plagiarism_results['details'],
-                "sentence_analyses": sentence_analyses,
-                "analysis_details": {
-                    "perplexity": float(perplexity_score),
-                    "burstiness": float(burstiness_score),
-                    "ngram_patterns": float(ngram_score),
-                    "mechanical_style": float(mechanical_score)
-                }
+            return {
+                'gpt_score': gpt_score,
+                'human_score': human_score,
+                'sentence_analyses': sentence_analyses
             }
             
-            logger.info(f"분석 결과: {result}")
-            return result
-            
         except Exception as e:
-            logger.error(f"텍스트 분석 중 오류 발생: {str(e)}", exc_info=True)
+            print(f"분석 중 오류 발생: {str(e)}")
             return {
-                "gpt_probability": 0.3,
-                "plagiarism_rate": 0.0,
-                "plagiarism_details": [],
-                "sentence_analyses": [],
-                "analysis_details": {
-                    "perplexity": 0.0,
-                    "burstiness": 0.0,
-                    "ngram_patterns": 0.0,
-                    "mechanical_style": 0.0
-                }
+                'gpt_score': 0,
+                'human_score': 100,
+                'sentence_analyses': []
             }
     
     def _calculate_perplexity(self, text: str) -> float:
@@ -654,8 +744,8 @@ def main():
     sample_text = "This is a sample text to test the GPT Killer."
     result = killer.analyze_text(sample_text)
     
-    print(f"GPT 생성 확률: {result['gpt_probability']:.2%}")
-    print(f"표절률: {result['plagiarism_rate']:.2%}")
+    print(f"GPT 생성 확률: {result['gpt_score']:.2%}")
+    print(f"인간 생성 확률: {result['human_score']:.2%}")
 
 if __name__ == "__main__":
     main() 

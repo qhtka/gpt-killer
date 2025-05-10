@@ -1,9 +1,10 @@
 import os
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, jsonify, render_template, redirect, url_for
 from werkzeug.utils import secure_filename
 from gpt_killer import GPTKiller
 import docx
 import logging
+from gpt_detector import GPTDetector
 
 # 로깅 설정
 logging.basicConfig(
@@ -35,6 +36,8 @@ def extract_text_from_docx(file_path):
         logger.error(f"DOCX 파일 처리 중 오류: {str(e)}")
         return None
 
+detector = GPTDetector()
+
 @app.route('/')
 def index():
     logger.debug("메인 페이지 요청")
@@ -46,8 +49,6 @@ def analyze():
         logger.debug("분석 요청 받음")
         logger.debug(f"요청 데이터: {request.form}")
         logger.debug(f"요청 파일: {request.files}")
-        
-        gpt_killer = GPTKiller()
         
         if 'file' in request.files:
             logger.debug("파일 업로드 요청 감지")
@@ -88,18 +89,38 @@ def analyze():
                 logger.error("텍스트가 비어있음")
                 return jsonify({'error': '텍스트를 입력해주세요.'}), 400
         
-        logger.debug("GPT Killer 분석 시작")
+        logger.debug("GPT Detector 분석 시작")
         try:
-            result = gpt_killer.analyze_text(text)
+            result = detector.analyze_text(text)
             logger.debug(f"분석 결과: {result}")
             return jsonify(result)
         except Exception as e:
-            logger.error(f"GPT Killer 분석 중 오류 발생: {str(e)}", exc_info=True)
+            logger.error(f"GPT Detector 분석 중 오류 발생: {str(e)}", exc_info=True)
             return jsonify({'error': '텍스트 분석 중 오류가 발생했습니다.'}), 500
         
     except Exception as e:
         logger.error(f"분석 중 오류 발생: {str(e)}", exc_info=True)
         return jsonify({'error': '서버 오류가 발생했습니다.'}), 500
 
+@app.route('/result', methods=['POST'])
+def result():
+    text = request.form.get('text', '')
+    if not text:
+        return redirect(url_for('index'))
+    
+    try:
+        # 텍스트 분석
+        result = detector.analyze_text(text)
+        
+        # 결과 템플릿에 전달
+        return render_template('result.html',
+                             text=text,
+                             perplexity=result['perplexity'],
+                             burstiness=result['burstiness'],
+                             judgement=result['result'])
+    except Exception as e:
+        app.logger.error(f"분석 중 오류 발생: {str(e)}")
+        return render_template('index.html', error="분석 중 오류가 발생했습니다.")
+
 if __name__ == '__main__':
-    app.run(debug=True) 
+    app.run(debug=True, port=5001) 
